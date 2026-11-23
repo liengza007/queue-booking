@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>จองคิว ห้องตัดผม 49</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">จองคิวออนไลน์</span>
+    <h1>ห้องตัดผม 49</h1>
+    <div class="hours"><span>เปิด อ.–อา. 10:00–19:00</span><span>ปิดทุกวันจันทร์</span><span>คิวละ 30 นาที</span></div>
+  </header>
+
+  <section id="mine" hidden></section>
+
+  <section id="bookSec">
+    <div class="step"><b>1</b><h2>เลือกวัน</h2></div>
+    <div class="dates" id="dates" role="group" aria-label="เลือกวัน"></div>
+    <div class="step"><b>2</b><h2>เลือกบริการ</h2></div>
+    <div class="services" id="services" role="group" aria-label="เลือกบริการ"></div>
+    <div class="step"><b>3</b><h2>เลือกเวลา</h2></div>
+    <div class="slots" id="slots" role="group" aria-label="เลือกเวลา"></div>
+    <div class="legend" id="legend">ขีดฆ่า = มีคนจองแล้ว หรือเลยเวลาแล้ว</div>
+    <div class="step"><b>4</b><h2>ข้อมูลผู้จอง</h2></div>
+    <form id="form" class="form" novalidate>
+      <label for="name">ชื่อเล่น<input id="name" autocomplete="nickname" maxlength="40" placeholder="เช่น ต้น"></label>
+      <label for="phone">เบอร์โทร<input id="phone" inputmode="tel" autocomplete="tel" maxlength="12" placeholder="08x-xxx-xxxx"></label>
+    </form>
+    <div id="pick" class="summary">เลือกวัน บริการ และเวลาให้ครบก่อนนะครับ</div>
+    <div id="msg" class="msg" hidden></div>
+    <button id="bookBtn" class="primary" type="button" disabled>ยืนยันจองคิว</button>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js"></script>
+<script src="shared.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const KEY = "q49_booking";
+const S = { date: null, service: null, time: null, taken: new Set(), mine: null, busy: false };
+
+function loadSaved(){ try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } }
+function save(v){ try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch {} }
+function flash(t, err){ const m = $("msg"); m.hidden = false; m.className = "msg " + (err ? "err" : "ok"); m.textContent = t; }
+
+function firstOpen(){
+  for (const d of U.days()) { if (d.getDay() === SHOP.CLOSED_DAY) continue; const k = U.ymd(d); if (U.times().some(t => !U.isPast(k, t))) return k; }
+  return U.ymd(U.days()[1]);
+}
+function renderDates(){ U.dateChips($("dates"), S.date, k => { S.date = k; S.time = null; renderDates(); loadTaken(); }); }
+function renderServices(){
+  const box = $("services"); box.replaceChildren();
+  for (const s of SHOP.SERVICES) {
+    const b = U.el("button", "svc"); b.type = "button"; b.setAttribute("aria-pressed", String(S.service === s.id));
+    b.append(U.el("span", null, s.name), U.el("span", "p", `฿${s.price}`));
+    b.onclick = () => { S.service = s.id; renderServices(); renderPick(); };
+    box.append(b);
+  }
+}
+function renderSlots(){
+  const box = $("slots"); box.replaceChildren();
+  for (const t of U.times()) {
+    const b = U.el("button", "slot", t); b.type = "button";
+    const off = U.isPast(S.date, t) || S.taken.has(t);
+    if (off && S.time === t) S.time = null;
+    b.disabled = off; b.setAttribute("aria-pressed", String(S.time === t));
+    b.onclick = () => { S.time = t; renderSlots(); renderPick(); };
+    box.append(b);
+  }
+}
+function renderPick(){
+  const s = U.svc(S.service), ok = S.date && s && S.time;
+  $("pick").textContent = ok ? `${U.thDate(S.date)} เวลา ${S.time} น. · ${s.name} ฿${s.price}` : "เลือกวัน บริการ และเวลาให้ครบก่อนนะครับ";
+  $("bookBtn").disabled = !ok || S.busy || (S.mine && S.mine.status === "booked");
+}
+function renderMine(){
+  const box = $("mine"); box.replaceChildren();
+  const m = S.mine;
+  if (!m) { box.hidden = true; return; }
+  box.hidden = false;
+  const h = U.el("div", "step"); h.append(U.el("h2", null, "คิวของคุณ"));
+  const slip = U.el("div", "slip");
+  const info = U.el("div", "info");
+  const s = U.svc(m.service);
+  const label = { booked: "จองแล้ว", done: "ใช้บริการแล้ว", cancelled: "ยกเลิกแล้ว" }[m.status] || m.status;
+  info.append(U.el("span", "pill " + m.status, label), U.el("strong", null, U.thDate(m.date)),
+    U.el("span", "muted", `${s ? s.name : m.service} · ฿${s ? s.price : "-"} · คุณ${m.name}`));
+  const act = U.el("div", "actions");
+  if (m.status === "booked") act.append(U.armButton("ยกเลิกคิวนี้", "ยืนยันยกเลิก?", cancelMine));
+  else { const b = U.el("button", "ghost", "ซ่อนสลิปนี้"); b.type = "button"; b.onclick = () => { save(null); S.mine = null; renderMine(); renderPick(); }; act.append(b); }
+  info.append(act);
+  slip.append(U.el("div", "no", m.time), info);
+  box.append(h, slip);
+}
+
+async function loadTaken(){
+  const d = S.date;
+  const { data, error } = await sb.rpc("taken_slots", { d });
+  if (d !== S.date) return;
+  if (error) { $("legend").textContent = "โหลดตารางคิวไม่สำเร็จ ลองรีเฟรชหน้านี้"; }
+  else { S.taken = new Set(data || []); $("legend").textContent = "ขีดฆ่า = มีคนจองแล้ว หรือเลยเวลาแล้ว"; }
+  renderSlots(); renderPick();
+}
+async function loadMine(){
+  const saved = loadSaved(); if (!saved) return;
+  const { data, error } = await sb.rpc("my_booking", { p_id: saved.id, p_code: saved.code });
+  if (error) return;
+  S.mine = data && data[0] ? data[0] : null;
+  if (!S.mine) save(null);
+  renderMine(); renderPick();
+}
+
+async function book(){
+  const name = $("name").value.trim(), digits = $("phone").value.replace(/[^0-9]/g, "");
+  if (!name) { flash("ใส่ชื่อเล่นก่อนนะครับ", true); $("name").focus(); return; }
+  if (digits.length < 9 || digits.length > 10) { flash("เบอร์โทรต้องมี 9–10 หลัก", true); $("phone").focus(); return; }
+  const phone = digits.replace(/^(\d{3})(\d{3})(\d+)$/, "$1-$2-$3");
+  S.busy = true; renderPick(); $("bookBtn").textContent = "กำลังจอง…";
+  const { data, error } = await sb.rpc("book", { p_date: S.date, p_time: S.time, p_service: S.service, p_name: name, p_phone: phone });
+  S.busy = false; $("bookBtn").textContent = "ยืนยันจองคิว";
+  if (error) {
+    const t = (error.code === "23505") ? "เวลานี้มีคนจองไปแล้ว เลือกเวลาอื่นนะครับ"
+      : /past/.test(error.message) ? "เวลานี้เลยมาแล้ว เลือกเวลาอื่นนะครับ"
+      : /closed/.test(error.message) ? "วันจันทร์ร้านปิดครับ"
+      : "จองไม่สำเร็จ ลองใหม่อีกครั้ง";
+    flash(t, true); loadTaken(); return;
+  }
+  const row = data[0];
+  save({ id: row.booking_id, code: row.code });
+  flash(`จองแล้ว ${U.thDate(S.date)} เวลา ${S.time} น. แล้วเจอกันครับ`, false);
+  S.time = null; await loadMine(); loadTaken();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+async function cancelMine(){
+  const saved = loadSaved(); if (!saved) return;
+  const { data, error } = await sb.rpc("cancel_booking", { p_id: saved.id, p_code: saved.code });
+  if (error || !data) { flash("ยกเลิกไม่สำเร็จ ลองใหม่อีกครั้ง", true); renderMine(); return; }
+  flash("ยกเลิกคิวแล้ว", false); await loadMine(); loadTaken();
+}
+
+$("bookBtn").onclick = book;
+$("form").addEventListener("submit", e => { e.preventDefault(); book(); });
+S.date = firstOpen();
+renderDates(); renderServices(); renderSlots(); renderPick();
+loadTaken(); loadMine();
+setInterval(() => { if (!S.busy) loadTaken(); }, 30000);
+</script>
+</body>
+</html>
