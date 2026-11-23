@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>หลังร้าน ห้องตัดผม 49</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">สำหรับเจ้าของร้าน</span>
+    <h1>หลังร้าน ห้องตัดผม 49</h1>
+  </header>
+
+  <section id="loginSec" hidden>
+    <h2>เข้าสู่ระบบ</h2>
+    <form id="login" class="login" novalidate>
+      <label for="email">อีเมลเจ้าของร้าน<input id="email" type="email" autocomplete="username"></label>
+      <button class="primary" type="submit">ส่งลิงก์เข้าสู่ระบบทางอีเมล</button>
+    </form>
+    <div id="loginMsg" class="msg" hidden></div>
+  </section>
+
+  <section id="app" hidden>
+    <div class="dates" id="dates" role="group" aria-label="เลือกวัน"></div>
+    <h2 id="title"></h2>
+    <div id="sum" class="summary"></div>
+    <div id="rows" class="rows"></div>
+    <div><button id="logout" class="ghost" type="button">ออกจากระบบ</button></div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js"></script>
+<script src="shared.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const S = { date: U.ymd(new Date()), list: [] };
+const LABEL = { booked: "รอคิว", done: "เสร็จแล้ว", cancelled: "ยกเลิก" };
+
+function render(){
+  U.dateChips($("dates"), S.date, k => { S.date = k; load(); }, true);
+  $("title").textContent = `คิววัน${U.thDate(S.date)}`;
+  const live = S.list.filter(b => b.status !== "cancelled");
+  const sum = live.reduce((t, b) => t + (U.svc(b.service)?.price || 0), 0);
+  $("sum").textContent = live.length ? `${live.length} คิว · เสร็จแล้ว ${live.filter(b => b.status === "done").length} · ยอดประมาณ ฿${sum.toLocaleString("th-TH")}` : "ยังไม่มีคิววันนี้";
+  const rows = $("rows"); rows.replaceChildren();
+  if (!S.list.length) { rows.append(U.el("div", "empty", "ยังไม่มีคนจองวันนี้")); return; }
+  for (const b of S.list) {
+    const r = U.el("div", "row");
+    const who = U.el("div", "who"); const s = U.svc(b.service);
+    who.append(U.el("strong", null, b.name), U.el("span", "muted", `${s ? s.name : b.service} ฿${s ? s.price : "-"} · ${b.phone}`), U.el("span", "pill " + b.status, LABEL[b.status] || b.status));
+    const btns = U.el("div", "btns");
+    if (b.status === "booked") {
+      const ok = U.el("button", "ghost", "เสร็จแล้ว"); ok.type = "button";
+      ok.onclick = () => setStatus(b.id, "done", ok);
+      btns.append(ok, U.armButton("ยกเลิก", "ยืนยัน?", () => setStatus(b.id, "cancelled")));
+    }
+    r.append(U.el("div", "t", b.time), who, btns);
+    rows.append(r);
+  }
+}
+async function load(){
+  const d = S.date;
+  const { data, error } = await sb.from("bookings").select("id,date,time,service,name,phone,status").eq("date", d).order("time");
+  if (d !== S.date) return;
+  S.list = error ? [] : data;
+  render();
+  if (error) $("sum").textContent = "โหลดข้อมูลไม่สำเร็จ ลองรีเฟรช";
+}
+async function setStatus(id, status, btn){
+  if (btn) btn.disabled = true;
+  const { error } = await sb.from("bookings").update({ status }).eq("id", id);
+  if (error) { if (btn) btn.disabled = false; $("sum").textContent = "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง"; return; }
+  load();
+}
+async function show(){
+  const { data } = await sb.auth.getSession();
+  const signedIn = !!data.session;
+  $("loginSec").hidden = signedIn; $("app").hidden = !signedIn;
+  if (signedIn) load();
+}
+$("login").addEventListener("submit", async e => {
+  e.preventDefault();
+  const m = $("loginMsg"); m.hidden = false;
+  const { error } = await sb.auth.signInWithOtp({ email: $("email").value.trim(), options: { shouldCreateUser: false, emailRedirectTo: location.href.split(/[?#]/)[0] } });
+  if (error) { m.className = "msg err"; m.textContent = "ส่งลิงก์ไม่สำเร็จ เช็กว่าเป็นอีเมลเจ้าของร้าน แล้วลองใหม่"; return; }
+  m.className = "msg ok"; m.textContent = "ส่งลิงก์ไปที่อีเมลแล้ว เปิดอีเมลแล้วกดลิงก์เพื่อเข้าสู่ระบบ";
+});
+sb.auth.onAuthStateChange(() => show());
+$("logout").onclick = async () => { await sb.auth.signOut(); show(); };
+show();
+setInterval(() => { if (!$("app").hidden) load(); }, 30000);
+</script>
+</body>
+</html>
